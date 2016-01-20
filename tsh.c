@@ -163,8 +163,17 @@ int main(int argc, char **argv)
  * background children don't receive SIGINT (SIGTSTP) from the kernel
  * when we type ctrl-c (ctrl-z) at the keyboard.  
 */
+
+/*Roger's version*/
+/**/
 void eval(char *cmdline) 
 {
+	char *argv[MAXARGS]; /*argv for execve()*/
+	int bg;
+	pid_t pid;
+
+/*process ID*/
+	bg = parseline(cmdline, argv);	
     return;
 }
 
