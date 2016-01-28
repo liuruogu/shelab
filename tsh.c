@@ -167,34 +167,43 @@ int main(int argc, char **argv)
 */
 
 /*Roger's version*/
-/**/
 void eval(char *cmdline)
 {
-	char *argv[MAXARGS]; /*argv for execve()*/
-	int bg;	/*should the job run in bg or fg?*/
-	pid_t pid; /*process ID*/
+	char *argv[MAXARGS]; //argv for execve()
+	int bg;	//decide the job runs in bg or fg
+	pid_t pid; //process ID
+    sigset_t mask; //for blocking signals
 
-/*process ID*/
+//process ID
 	bg = parseline(cmdline, argv);
-	if(!builtin_cmd(argv))
-	{
-		if((pid = Fork())==0) /*child runs user job*/
-		{
-			if(execve(argv[0], argv, environ)<0)
-			{
-				printf("%s: command not found.\n", argv[0]);
-				exit(0);
-			}
-		}
-		if(!bg)	/*parent waits for fg job to terminate */
-		{
-			int status;
-			if(waitpid(pid, &status, 0)<0)
-				unix_error("waitfg: waitpid error");
-		}
-		else	/*otherwise, do not wait for bg job*/
-			printf("%d %s", pid, cmdline);
-		}
+    if (argv[0] == NULL)
+    return ;
+
+//ignore the empty lines
+    if(!builtin_cmd(argv))
+    {//If it has built-in command
+        if((pid = fork()) == 0)
+        { //fork a child if not in built in command
+            setpgid(0,0); //set the process group id to 0
+            if(execve(argv[0],argv,environ)<0)
+            {
+                printf("%s: command not found.\n ", argv[0]);
+                exit(0);
+            }
+        }
+        //parent waits for foreground job to terminate
+    if(!bg)
+    {
+        addjob(jobs, pid, FG, cmdline); //add foreground jobs
+        waitfg(pid); //waiting for all foregroung jobs to complete
+    }
+    else
+    {
+        addjob(jobs, pid, BG, cmdline);//add background jobs
+        printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline); //map the process id to
+    }
+    return;
+    }
 }
 
 /*
