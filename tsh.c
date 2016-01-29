@@ -174,36 +174,55 @@ void eval(char *cmdline)
 	pid_t pid; //process ID
     sigset_t mask; //for blocking signals
 
-//process ID
-	bg = parseline(cmdline, argv);
-    if (argv[0] == NULL)
-    return ;
+    strcpy(buf, cmdline);
+    bg = parseline(buf, argv);//return 1 if background job is here.
 
-//ignore the empty lines
     if(!builtin_cmd(argv))
-    {//If it has built-in command
-        if((pid = fork()) == 0)
-        { //fork a child if not in built in command
-            setpgid(0,0); //set the process group id to 0
-            if(execve(argv[0],argv,environ)<0)
+    {
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGCHLD);
+        sigprocmask(SIG_BLOCK, &mask, NULL);
+
+        //Fork a Child if not in the builtin command
+        if((pid = fork())==0)
+        {
+            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+            setpgid(0,0);
+
+            if(execve(argv[0], argv, environ)<0) //return -1 on error
             {
-                printf("%s: command not found.\n ", argv[0]);
+                printf("%s: Command not found.\n", argv[0]);
                 exit(0);
             }
         }
-        //parent waits for foreground job to terminate
-    if(!bg)
-    {
-        addjob(jobs, pid, FG, cmdline); //add foreground jobs
-        waitfg(pid); //waiting for all foregroung jobs to complete
-    }
-    else
-    {
-        addjob(jobs, pid, BG, cmdline);//add background jobs
-        printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline); //map the process id to
+
+        int state = bg ? BG : FG;
+        addjob(jobs, pid, state, cmdline);
+        sigprocmask(SIG_UNBLOCK, &mask, NULL);
+
+        //parent wait for the foreground job to terminate
+        if(!bg)
+            waitfg(pid);
+        else
+        {
+            int jid = pid2jid(pid);
+            printf("[%d] (%d)", jid, pid);
+            switch(state)
+            {
+                case BG:
+                    printf("Running ");
+                    break;
+                case FH:
+                    printf("Foregroung ");
+                    break;
+                default:
+                    printf("listjobs: Internal error: job[%d].state=%d", jid, state);
+            }
+            printf("%s", cmdline);
+        }
     }
     return;
-    }
+
 }
 
 /*
@@ -296,7 +315,27 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv)
 {
-    return;
+    //This id could be a jid or pid
+    struct job_t *job;
+    char *id = argv[1];
+    int jid;
+
+    //if ID does not exist
+    if(ID == NULL)
+    {
+        printf("%s command need PID or %% jobid argument\n", argv[0]);
+        return ;
+    }
+    // For a jid
+    if (id[0]=='%')
+    {
+        jid = atoi(&id[1]);
+        if(!(job = getjobjid(jobs,jid)))
+        {
+            printf("%s: No such job\n", id);
+            return;
+        }
+    }
 }
 
 /*
