@@ -336,6 +336,45 @@ void do_bgfg(char **argv)
             return;
         }
     }
+    // For a pid
+    else if(isdigit(id[0]))
+    {
+        pid_t pid = atoi(id);
+
+        if(!(job = getjobpid(jobs, pid)))
+        {
+            printf("(%s): No such process\n", pid);
+            return;
+        }
+    }
+    else
+    {
+        printf("%s: argument must be PID or %% jobid\n", argv[0]);
+        return;
+    }
+    //continue
+    if(kill(-(job->pid),SIGCONT)<0)
+    {
+        if(errno != ESRCH)
+        {
+            unix_error("kill error");
+        }
+    }
+    //To determind the bg and fg
+    if(!strcmp("fg", argv[0]))
+    {
+        job->state = FG;
+        waitfg(job->pid);
+    }
+    else if(!strcmp("bg", argv[0]))
+    {
+        printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+        job->state = BG;
+    }
+    else
+    {
+        printf("bg/fg error: %s \n", argv[0])
+    }
 }
 
 /*
@@ -343,7 +382,12 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    return;
+    //waitj until process is not in the foregroung process
+    while(pid = fgpid(jobs))
+    {
+        sleep(0);
+    }
+
 }
 
 /*****************
