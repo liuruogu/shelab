@@ -186,6 +186,7 @@ void eval(char *cmdline)
         //Fork a Child if not in the builtin command
         if((pid = fork())==0)
         {
+
             sigprocmask(SIG_UNBLOCK, &mask, NULL);
             setpgid(0,0);
 
@@ -387,7 +388,6 @@ void waitfg(pid_t pid)
     {
         sleep(0);
     }
-
 }
 
 /*****************
@@ -403,6 +403,31 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
+    pid_t pid;
+
+    int status;
+    while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0)
+    {
+        //time to reap
+        struct job_t *job = getjobpid(jobs, pid);
+        int jid = job->jid;
+
+        if(WIFSIGNALED(status))
+        {
+            deletejob(jobs, pid);
+            printf("[%d], (%d) Process reveived SIGNAL %d \n", jid, pid, WIFSIGNALED(status));
+        }
+        else if(WIFSTOPPED(status))
+        {
+            job->state = ST;
+            printf("[%d] (%d) Process stopped because a STOP signal \n",jid, pid);
+        }
+        else if(WIFEXITED(status))
+        {
+            deletejob(job, pid);
+            printf("[%d] (%d) Process exited",jid, pid);
+        }
+    }
     return;
 }
 
@@ -413,6 +438,19 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig)
 {
+    int pid_t pid = fgpid(jobs);
+    int jid = pid2jid(pid);
+
+    //sent fg job or process group signal
+    if(pid!=0)
+    {
+        kill(-pid, SIGINT);
+        if(sig<0)
+        {
+            printf("Job [%d] (%d) terminated by signal %d \n", jid, pid, (-sig));
+            deletejob(jobs, pid);
+        }
+    }
     return;
 }
 
@@ -423,6 +461,16 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig)
 {
+    int pid = fgpid(jobs);
+    int jid = pid2jid(pid);
+
+    //sent fg job or process group signal
+    if(pid != 0)
+    {
+        printf("Job [%d], (%d) stopped by signal %d\n", jid, pid, sig);
+        getjobpid(jobs, pid)->state = ST;
+        kill(-pid, SIGTSTP);
+    }
     return;
 }
 
