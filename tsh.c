@@ -170,7 +170,7 @@ int main(int argc, char **argv)
 void eval(char *cmdline)
 {
     //Always unblock signal to avoid the race condition
-    //unblock signal before the exeve(). Because the child process inherits parent's signal block vector.
+    //unblock signal before the exeve the new program. Because the child process inherits parent's signal block vector.
 
 	char *argv[MAXARGS]; //argument list execve()
 	int bg;	//decide the job runs in bg or fg
@@ -204,9 +204,6 @@ void eval(char *cmdline)
             }
         }
 
-        //int state = bg ? BG : FG;
-
-
         //parent wait for the child/foreground job to terminate
         if(!bg)
         {
@@ -214,7 +211,7 @@ void eval(char *cmdline)
             sigprocmask(SIG_UNBLOCK, &mask, NULL);
             waitfg(pid);
          }   //parent waits for foreground job to terminate
-        else//Background
+        else// children run into background
         {
             addjob(jobs, pid, bg?BG:FG, cmdline);
             sigprocmask(SIG_UNBLOCK, &mask, NULL);
@@ -306,7 +303,7 @@ int builtin_cmd(char **argv)
 	{
 		return 1;
 	}
-    return 0;     /* not a builtin command */
+    return 0;
 }
 
 /*
@@ -353,7 +350,7 @@ void do_bgfg(char **argv)
     {
         if(errno != ESRCH)
         {
-            unix_error("kill error");
+            unix_error("kill error\n");
         }
     }
     //To determind the bg and fg
@@ -369,7 +366,7 @@ void do_bgfg(char **argv)
     }
     else
     {
-        printf("bg/fg error: %s \n", argv[0]);
+        printf("error: %s \n", argv[0]);
     }
 
     return;
@@ -380,7 +377,7 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    //wait until process is not in the foregroung process
+
     while(pid == fgpid(jobs))
     {
         sleep(1);
@@ -401,31 +398,33 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig)
 {
     pid_t pid;
-
     int status;
-    while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED))>0)
-    {
-        //time to reap
-        struct job_t *job = getjobpid(jobs, pid);
-        int jid = job->jid;
+    int jobid;
 
-        if(WIFSIGNALED(status))
-        {
+    while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {    // Reap a zombie child
+        jobid = pid2jid(pid);
+
+        if (WIFEXITED(status)) {
+            //if exited
             deletejob(jobs, pid);
-            printf("[%d], (%d) Process received SIGNAL %d \n", jid, pid, WIFSIGNALED(status));
+            if (verbose) printf("sigchld_handler: Job [%d] (%d) deleted\n", jobid, (int) pid);
+            if (verbose) printf("sigchld_handler: Job [%d] (%d) terminates OK (status %d)\n", jobid, (int) pid, WEXITSTATUS(status));
         }
-        else if(WIFSTOPPED(status))
-        {
-            job->state = ST;
-            printf("[%d] (%d) Process stopped because a STOP signal \n",jid, pid);
+
+        else if (WIFSIGNALED(status)) {
+            //delete if signaled
+            deletejob(jobs,pid);
+            if (verbose) printf("sigchld_handler: Job [%d] (%d) deleted\n", jobid, (int) pid);
+            printf("Job [%d] (%d) terminated by signal %d\n", jobid, (int) pid, WTERMSIG(status));
         }
-        else if(WIFEXITED(status))
-        {
-            deletejob(job, pid);
-            printf("[%d] (%d) Process exited",jid, pid);
+
+        else if (WIFSTOPPED(status)) {
+            //change stage if stopped
+            getjobpid(jobs, pid)->state = ST;
+            printf("Job [%d] (%d) stopped by signal %d\n", jobid, (int) pid, WSTOPSIG(status));
         }
     }
-    return;
+
 }
 
 /*
@@ -436,20 +435,13 @@ void sigchld_handler(int sig)
 void sigint_handler(int sig)
 {
 
-    int pid= fgpid(jobs);
-    int jid = pid2jid(pid);
+     pid_t pid = fgpid(jobs);
 
-    //sent fg job or process group signal
-    if(pid!=0)
-    {
-        kill(-pid, sig);
-        if(sig<0)
-        {
-            printf("Job [%d] (%d) terminated by signal %d \n", jid, pid, (-sig));
-            deletejob(jobs, pid);
-        }
-    }
-    return;
+  if (pid != 0)
+    kill(-pid, sig);
+
+  return;
+
 }
 
 /*
@@ -459,17 +451,16 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig)
 {
-    int fg_pid = fgpid(jobs);
-    int jid = pid2jid(fg_pid);
 
-    //sent fg job or process group signal
-    if(fg_pid != 0)
+  pid_t pid = fgpid(jobs);
+
+  if (pid != 0)
     {
-        printf("Job [%d], (%d) stopped by signal %d\n", jid, fg_pid, sig);
-        getjobpid(jobs, fg_pid)->state = ST;
-        kill(-fg_pid, SIGTSTP);
+    getjobpid(jobs, pid)->state = ST;
+    kill(-pid, sig);
     }
-    return;
+
+  return;
 }
 
 /*********************
